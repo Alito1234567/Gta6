@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Open World City</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial Black', sans-serif; }
+        canvas { display: block; }
+        
+        /* Startskjerm-stil */
+        #start-screen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), 
+                        url('https://images.unsplash.com/photo-1514924013411-cbf25faa35bb?auto=format&fit=crop&w=1000&q=80');
+            background-size: cover;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #logo {
+            color: white;
+            font-size: 80px;
+            text-shadow: 5px 5px #f1c40f;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 24px;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: 0.3s;
+        }
+
+        button:hover { background: #27ae60; transform: scale(1.1); }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <div id="logo">CITY DRIFT 2D</div>
+        <button onclick="startGame()">START GAME</button>
+    </div>
+
+    <div id="ui" style="display:none;">
+        <strong>KONTROLLER:</strong><br>
+        Bevegelse: WASD<br>
+        Inn/ut av bil: E<br>
+        Mål: Utforsk byen
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const startScreen = document.getElementById("start-screen");
+const ui = document.getElementById("ui");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// --- Spill Variabler ---
+let gameActive = false;
+const keys = {};
+const worldSize = 3000; // Størrelsen på spillverdenen
+
+const camera = { x: 0, y: 0 };
+
+const player = {
+    x: 500, y: 500,
+    width: 30, height: 30,
+    color: "#3498db",
+    speed: 5,
+    inVehicle: false
+};
+
+const car = {
+    x: 700, y: 700,
+    width: 60, height: 110,
+    color: "#e74c3c",
+    angle: 0,
+    speed: 0,
+    maxSpeed: 10,
+    accel: 0.2,
+    friction: 0.96
+};
+
+// --- Input håndtering ---
+window.addEventListener("keydown", (e) => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", (e) => keys[e.key.toLowerCase()] = false);
+
+window.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === 'e' && gameActive) {
+        if (!player.inVehicle) {
+            const dist = Math.hypot(player.x - car.x, player.y - car.y);
+            if (dist < 80) player.inVehicle = true;
+        } else {
+            player.inVehicle = false;
+            player.x = car.x + 70; // Gå ut på siden
+            player.y = car.y;
+        }
+    }
+});
+
+function startGame() {
+    startScreen.style.display = "none";
+    ui.style.display = "block";
+    gameActive = true;
+    gameLoop();
+}
+
+function update() {
+    if (!gameActive) return;
+
+    if (!player.inVehicle) {
+        // Spiller logikk
+        if (keys['w']) player.y -= player.speed;
+        if (keys['s']) player.y += player.speed;
+        if (keys['a']) player.x -= player.speed;
+        if (keys['d']) player.x += player.speed;
+        
+        camera.x = player.x - canvas.width / 2;
+        camera.y = player.y - canvas.height / 2;
+    } else {
+        // Bil logikk
+        if (keys['w']) car.speed += car.accel;
+        if (keys['s']) car.speed -= car.accel / 2;
+
+        if (Math.abs(car.speed) > 0.1) {
+            const turnDir = car.speed > 0 ? 1 : -1;
+            if (keys['a']) car.angle -= 0.04 * turnDir;
+            if (keys['d']) car.angle += 0.04 * turnDir;
+        }
+
+        car.speed *= car.friction;
+        car.x += Math.cos(car.angle) * car.speed;
+        car.y += Math.sin(car.angle) * car.speed;
+
+        player.x = car.x;
+        player.y = car.y;
+
+        camera.x = car.x - canvas.width / 2;
+        camera.y = car.y - canvas.height / 2;
+    }
+}
+
+function drawWorld() {
+    // Tegn Gress
+    ctx.fillStyle = "#27ae60";
+    ctx.fillRect(-camera.x, -camera.y, worldSize, worldSize);
+
+    // Tegn Veier (Enkelt rutenett)
+    ctx.fillStyle = "#333";
+    for(let i = 0; i < worldSize; i += 800) {
+        ctx.fillRect(i - camera.x, 0 - camera.y, 150, worldSize); // Vertikale veier
+        ctx.fillRect(0 - camera.x, i - camera.y, worldSize, 150); // Horisontale veier
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    drawWorld();
+
+    // Tegn Bil
+    ctx.save();
+    ctx.translate(car.x - camera.x, car.y - camera.y);
+    ctx.rotate(car.angle);
+    ctx.fillStyle = car.color;
+    ctx.fillRect(-car.width/2, -car.height/2, car.width, car.height);
+    // Lykter
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(car.width/2 - 5, -car.height/2 + 5, 5, 10);
+    ctx.fillRect(car.width/2 - 5, car.height/2 - 15, 5, 10);
+    ctx.restore();
+
+    // Tegn Spiller
+    if (!player.inVehicle) {
+        ctx.fillStyle = player.color;
+        ctx.beginPath();
+        ctx.arc(player.x - camera.x, player.y - camera.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// Juster canvas ved resize
+window.addEventListener("resize", () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+</script>
+</body>
+</html>
