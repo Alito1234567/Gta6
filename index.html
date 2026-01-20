@@ -2,44 +2,59 @@
 <html lang="no">
 <head>
     <meta charset="UTF-8">
-    <title>2D City Survivor Pro</title>
+    <title>City Survivor: Battle Edition</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #222; font-family: 'Arial', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
+        
         #ui {
-            position: absolute; top: 10px; left: 10px; color: white;
-            background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px; font-size: 14px;
+            position: absolute; top: 15px; left: 15px; color: white;
+            background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 8px;
+            pointer-events: none; border-left: 4px solid #3498db;
         }
+
         #hotbar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            display: flex; gap: 8px; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 12px; border: 2px solid #444;
+            display: flex; gap: 8px; background: rgba(0,0,0,0.8); padding: 10px; 
+            border-radius: 10px; border: 2px solid #555;
         }
+
         .slot {
-            width: 60px; height: 60px; border: 2px solid #666; display: flex;
+            width: 50px; height: 50px; border: 2px solid #444; display: flex;
             flex-direction: column; justify-content: center; align-items: center; 
-            color: white; position: relative; background: #333;
+            color: #ccc; background: #222; position: relative; transition: 0.2s;
         }
-        .slot.active { border-color: #00d4ff; background: #444; box-shadow: 0 0 10px #00d4ff; }
-        .key-hint { position: absolute; top: 2px; left: 4px; font-size: 12px; color: #00d4ff; font-weight: bold; }
-        .item-label { font-size: 10px; text-align: center; margin-top: 10px; }
+        .slot.active { border-color: #f1c40f; background: #333; transform: translateY(-5px); box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .key-hint { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #f1c40f; font-weight: bold; }
+        .item-text { font-size: 10px; font-weight: bold; margin-top: 10px; }
+
         #hp-container {
-            position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%);
-            width: 320px; height: 20px; background: #222; border: 2px solid #fff;
+            position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+            width: 400px; height: 25px; background: #222; border: 3px solid #fff; border-radius: 5px;
         }
-        #hp-bar { width: 100%; height: 100%; background: #ff4757; transition: width 0.1s; }
+        #hp-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #e74c3c, #c0392b); transition: width 0.1s; }
+        
+        #ammo-display {
+            position: absolute; bottom: 135px; left: 50%; transform: translateX(-50%);
+            color: yellow; font-weight: bold; text-shadow: 1px 1px 0 #000;
+        }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <b>WASD</b>: Bevegelse | <b>E</b>: Inn/Ut Bil | <b>T</b>: Plukk opp<br>
-        <b>1-9</b>: Velg Slot | <b>I</b>: Bruk/Skyte (Hold inne 2s for Medkit)
+        <h3>KONTROLLER</h3>
+        <b>WASD</b>: Bevegelse<br>
+        <b>E</b>: Gå inn/ut av bil<br>
+        <b>T</b>: Plukk opp ting<br>
+        <b>1-5</b>: Bytt våpen/ting<br>
+        <b>I</b> eller <b>Klikk</b>: Skyt<br>
+        <b>M</b>: Bruk Medkit
     </div>
 
+    <div id="ammo-display"></div>
     <div id="hp-container"><div id="hp-bar"></div></div>
-
-    <div id="hotbar" id="slot-container">
-        </div>
+    <div id="hotbar"></div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -49,80 +64,162 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-const worldSize = 5000;
+// --- KONFIGURASJON ---
+const worldSize = 4000;
 const keys = {};
 let activeSlot = 1;
-let useTimer = 0;
+let cameraShake = 0;
 
-// Spill-tilstand
+// Tekstur-generering (for bedre grafikk)
+const grassPattern = createPattern('green');
+const roadPattern = createPattern('gray');
+
+function createPattern(type) {
+    const pCanvas = document.createElement('canvas');
+    pCanvas.width = 64; pCanvas.height = 64;
+    const pCtx = pCanvas.getContext('2d');
+    if(type === 'green') {
+        pCtx.fillStyle = "#2ecc71"; pCtx.fillRect(0,0,64,64);
+        pCtx.fillStyle = "#27ae60"; 
+        for(let i=0; i<10; i++) pCtx.fillRect(Math.random()*64, Math.random()*64, 4, 4);
+    } else {
+        pCtx.fillStyle = "#555"; pCtx.fillRect(0,0,64,64);
+        pCtx.fillStyle = "#666"; 
+        for(let i=0; i<20; i++) pCtx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
+    }
+    return ctx.createPattern(pCanvas, 'repeat');
+}
+
+// --- SPILL OBJEKTER ---
 const player = { 
-    x: 2500, y: 2500, hp: 100, maxHp: 100, speed: 4, 
-    inVehicle: false, inventory: Array(10).fill(null), angle: 0 
+    x: 2000, y: 2000, hp: 100, maxHp: 100, speed: 5, 
+    inVehicle: false, inventory: Array(6).fill(null), angle: 0,
+    safe: false, cooldown: 0
 };
 
 const car = { 
-    x: 2700, y: 2700, w: 60, h: 110, angle: 0, speed: 0, 
-    maxSpeed: 12, accel: 0.3, friction: 0.95, turnSpeed: 0.06 
+    x: 2100, y: 2100, w: 65, h: 120, angle: 0, speed: 0, 
+    maxSpeed: 14, accel: 0.4, friction: 0.94, turnSpeed: 0.05 
+};
+
+// Våpenstatistikk
+const weapons = {
+    'Pistol': { damage: 25, speed: 15, spread: 0.1, cool: 20, color: 'gold', count: 1 },
+    'Hagle':  { damage: 15, speed: 12, spread: 0.4, cool: 50, color: 'gray', count: 5 }, // Skyter 5 skudd
+    'SMG':    { damage: 10, speed: 18, spread: 0.2, cool: 6, color: 'black', count: 1 }   // Skyter veldig fort
 };
 
 const projectiles = [];
-const enemies = Array.from({length: 20}, () => ({
-    x: Math.random() * worldSize,
-    y: Math.random() * worldSize,
-    hp: 1, speed: 2, angle: 0
-}));
-
+const particles = [];
+const enemies = [];
 const worldItems = [];
-function spawnItems() {
-    for(let i=0; i<15; i++) {
-        worldItems.push({ x: Math.random()*worldSize, y: Math.random()*worldSize, type: 'Pistol', color: '#f1c40f' });
-        worldItems.push({ x: Math.random()*worldSize, y: Math.random()*worldSize, type: 'Medkit', color: '#ff4757' });
+const houses = [];
+
+// Generer Verden
+function initWorld() {
+    // Hus
+    for(let i=0; i<20; i++) {
+        houses.push({ x: Math.random()*(worldSize-500), y: Math.random()*(worldSize-500), w: 250, h: 250 });
+    }
+    // Fiender
+    for(let i=0; i<30; i++) {
+        enemies.push({ x: Math.random()*worldSize, y: Math.random()*worldSize, hp: 100, speed: 2 + Math.random(), type: Math.random() > 0.8 ? 'big' : 'small' });
+    }
+    // Items
+    for(let i=0; i<30; i++) {
+        const types = ['Pistol', 'Hagle', 'SMG', 'Medkit', 'Medkit'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        worldItems.push({ x: Math.random()*worldSize, y: Math.random()*worldSize, type: type });
     }
 }
-spawnItems();
-
-const houses = Array.from({length: 15}, () => ({
-    x: Math.random() * (worldSize - 300),
-    y: Math.random() * (worldSize - 300),
-    w: 200, h: 200
-}));
+initWorld();
 
 // Input
 window.addEventListener("keydown", e => {
     keys[e.key.toLowerCase()] = true;
-    if (e.key >= '1' && e.key <= '9') {
+    if (e.key >= '1' && e.key <= '5') {
         activeSlot = parseInt(e.key);
         updateUI();
     }
+    // Medkit på M
+    if (e.key.toLowerCase() === 'm') useMedkit();
 });
 window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+window.addEventListener("mousedown", () => keys['mouse'] = true);
+window.addEventListener("mouseup", () => keys['mouse'] = false);
+let mouseX = 0, mouseY = 0;
+window.addEventListener("mousemove", e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+});
 
-// Oppdater Hotbar UI
+function useMedkit() {
+    const item = player.inventory[activeSlot];
+    if (item === 'Medkit') {
+        if (player.hp < 100) {
+            player.hp = Math.min(player.hp + 50, 100);
+            player.inventory[activeSlot] = null;
+            createParticles(player.x, player.y, 'green', 10);
+            updateUI();
+        }
+    }
+}
+
 function updateUI() {
     const container = document.getElementById('hotbar');
     container.innerHTML = '';
-    for (let i = 1; i <= 9; i++) {
+    const ammoDiv = document.getElementById('ammo-display');
+    const currentItem = player.inventory[activeSlot];
+
+    ammoDiv.innerText = currentItem && weapons[currentItem] ? currentItem : "";
+
+    for (let i = 1; i <= 5; i++) {
         const item = player.inventory[i];
         const slot = document.createElement('div');
         slot.className = `slot ${i === activeSlot ? 'active' : ''}`;
-        slot.innerHTML = `<span class="key-hint">${i}</span><span class="item-label">${item || ''}</span>`;
+        slot.innerHTML = `<span class="key-hint">${i}</span><span class="item-text">${item ? item : ''}</span>`;
         container.appendChild(slot);
     }
 }
 updateUI();
 
+function createParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) {
+        particles.push({
+            x: x, y: y, 
+            vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5, 
+            life: 30, color: color
+        });
+    }
+}
+
 function update() {
-    // 1. Spiller og Bil Logikk
+    if (player.hp <= 0) { alert("Døde! Trykk OK for å starte på nytt."); location.reload(); return; }
+    
+    // Kamera Shake
+    if (cameraShake > 0) cameraShake *= 0.9;
+
+    // Sjekk om spiller er trygg (inne i hus)
+    player.safe = false;
+    if (!player.inVehicle) {
+        houses.forEach(h => {
+            if (player.x > h.x && player.x < h.x + h.w && player.y > h.y && player.y < h.y + h.h) {
+                player.safe = true;
+            }
+        });
+    }
+
+    // --- BEVEGELSE ---
     if (!player.inVehicle) {
         if (keys['w']) player.y -= player.speed;
         if (keys['s']) player.y += player.speed;
         if (keys['a']) player.x -= player.speed;
         if (keys['d']) player.x += player.speed;
         
-        // Snu spiller mot mus/bevegelse (forenklet)
-        if (keys['w']||keys['a']||keys['s']||keys['d']) player.angle = Math.atan2(keys['s']-keys['w'], keys['d']-keys['a']);
+        // Sikt mot musen
+        player.angle = Math.atan2(mouseY - canvas.height/2, mouseX - canvas.width/2);
 
-        // Gå inn i bil
+        // Gå inn i bil (E)
         if (keys['e']) {
             if (Math.hypot(player.x - car.x, player.y - car.y) < 80) {
                 player.inVehicle = true;
@@ -134,58 +231,55 @@ function update() {
         if (keys['w']) car.speed += car.accel;
         if (keys['s']) car.speed -= car.accel;
         car.speed *= car.friction;
-
         if (Math.abs(car.speed) > 0.5) {
-            const direction = car.speed > 0 ? 1 : -1;
-            if (keys['a']) car.angle -= car.turnSpeed * direction;
-            if (keys['d']) car.angle += car.turnSpeed * direction;
+            const dir = car.speed > 0 ? 1 : -1;
+            if (keys['a']) car.angle -= car.turnSpeed * dir;
+            if (keys['d']) car.angle += car.turnSpeed * dir;
         }
-
         car.x += Math.cos(car.angle) * car.speed;
         car.y += Math.sin(car.angle) * car.speed;
-        player.x = car.x;
-        player.y = car.y;
+        player.x = car.x; player.y = car.y;
+        player.safe = true; // Trygg i bil? Ja, litt.
 
-        // Gå ut av bil
-        if (keys['e']) {
+        if (keys['e']) { // Ut av bil
             player.inVehicle = false;
-            player.x += Math.cos(car.angle + Math.PI/2) * 70;
-            player.y += Math.sin(car.angle + Math.PI/2) * 70;
-            keys['e'] = false;
+            player.x += 100; keys['e'] = false;
         }
     }
 
-    // 2. Bruk gjenstander (Pistol / Medkit)
-    const currentItem = player.inventory[activeSlot];
-    if (keys['i'] && !player.inVehicle) {
-        if (currentItem === 'Pistol') {
+    // --- SKYTING (I eller Klikk) ---
+    if (player.cooldown > 0) player.cooldown--;
+    
+    const currentWeapon = weapons[player.inventory[activeSlot]];
+    const tryingToShoot = (keys['i'] || keys['mouse']);
+
+    if (tryingToShoot && currentWeapon && !player.inVehicle && player.cooldown <= 0) {
+        player.cooldown = currentWeapon.cool;
+        cameraShake = 5;
+        
+        // Lag munningsflamme
+        createParticles(player.x + Math.cos(player.angle)*30, player.y + Math.sin(player.angle)*30, 'yellow', 5);
+
+        // Skyt prosjektiler (støtter hagle-spredning)
+        for(let i=0; i<currentWeapon.count; i++) {
+            const spread = (Math.random() - 0.5) * currentWeapon.spread;
             projectiles.push({
                 x: player.x, y: player.y,
-                vx: Math.cos(player.angle) * 12,
-                vy: Math.sin(player.angle) * 12,
+                vx: Math.cos(player.angle + spread) * currentWeapon.speed,
+                vy: Math.sin(player.angle + spread) * currentWeapon.speed,
+                damage: currentWeapon.damage,
                 life: 60
             });
-            keys['i'] = false; // Semi-auto
-        } else if (currentItem === 'Medkit') {
-            useTimer++;
-            if (useTimer > 100) { // ca 2 sek
-                player.hp = 100;
-                player.inventory[activeSlot] = null;
-                useTimer = 0;
-                updateUI();
-            }
         }
-    } else {
-        useTimer = 0;
     }
 
-    // 3. Plukk opp (T)
+    // --- INTERAKSJONER ---
     if (keys['t']) {
-        worldItems.forEach((item, idx) => {
-            if (Math.hypot(player.x - item.x, player.y - item.y) < 50) {
-                for(let i=1; i<=9; i++) {
+        worldItems.forEach((it, idx) => {
+            if (Math.hypot(player.x - it.x, player.y - it.y) < 50) {
+                for(let i=1; i<=5; i++) {
                     if (!player.inventory[i]) {
-                        player.inventory[i] = item.type;
+                        player.inventory[i] = it.type;
                         worldItems.splice(idx, 1);
                         updateUI();
                         break;
@@ -195,92 +289,155 @@ function update() {
         });
     }
 
-    // 4. Fiender (Figurer som beveger seg)
-    enemies.forEach((en, eIdx) => {
+    // --- AI & KOLLISJON ---
+    enemies.forEach(en => {
         const dist = Math.hypot(player.x - en.x, player.y - en.y);
-        if (dist < 400) {
-            en.angle = Math.atan2(player.y - en.y, player.x - en.x);
-            en.x += Math.cos(en.angle) * en.speed;
-            en.y += Math.sin(en.angle) * en.speed;
+        
+        // Jager bare hvis du ikke er i hus (Safe Zone)
+        if (dist < 500 && !player.safe) {
+            const angle = Math.atan2(player.y - en.y, player.x - en.x);
+            en.x += Math.cos(angle) * en.speed;
+            en.y += Math.sin(angle) * en.speed;
         }
-        if (dist < 25 && !player.inVehicle) player.hp -= 0.3;
+
+        if (dist < 25 && !player.safe) player.hp -= 0.5;
     });
 
-    // 5. Prosjektil-kollisjon
-    projectiles.forEach((p, pIdx) => {
+    // Prosjektiler
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
         p.x += p.vx; p.y += p.vy; p.life--;
+        
+        // Treff fiende
         enemies.forEach((en, eIdx) => {
-            if (Math.hypot(p.x - en.x, p.y - en.y) < 30) {
-                enemies.splice(eIdx, 1);
-                projectiles.splice(pIdx, 1);
+            if (Math.hypot(p.x - en.x, p.y - en.y) < 25) {
+                en.hp -= p.damage;
+                createParticles(en.x, en.y, 'red', 3);
+                projectiles.splice(i, 1);
+                if (en.hp <= 0) enemies.splice(eIdx, 1);
             }
         });
-        if(p.life <= 0) projectiles.splice(pIdx, 1);
-    });
+        if (p.life <= 0) projectiles.splice(i, 1);
+    }
 
-    if (player.hp <= 0) { alert("Game Over!"); location.reload(); }
+    // Partikler
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy; p.life--;
+        if(p.life <= 0) particles.splice(i, 1);
+    }
+
     document.getElementById('hp-bar').style.width = player.hp + "%";
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Kamera logikk + Risting
+    let camX = -player.x + canvas.width/2 + (Math.random()-0.5)*cameraShake;
+    let camY = -player.y + canvas.height/2 + (Math.random()-0.5)*cameraShake;
+    
     ctx.save();
-    ctx.translate(-player.x + canvas.width/2, -player.y + canvas.height/2);
+    ctx.translate(camX, camY);
 
-    // Bakgrunn (Gress og Veier)
-    ctx.fillStyle = "#2ecc71"; ctx.fillRect(0,0, worldSize, worldSize);
-    ctx.fillStyle = "#555";
-    for(let i=0; i<worldSize; i+=1200) {
-        ctx.fillRect(i, 0, 160, worldSize); // Vertikal vei
-        ctx.fillRect(0, i, worldSize, 160); // Horisontal vei
+    // 1. Gress
+    ctx.fillStyle = grassPattern;
+    ctx.fillRect(player.x - 1000, player.y - 1000, 2000, 2000); // Tegner bare rundt spilleren for ytelse
+
+    // 2. Veier
+    ctx.fillStyle = roadPattern;
+    for(let i=0; i<worldSize; i+=1000) {
+        ctx.fillRect(i, 0, 180, worldSize); 
+        ctx.fillRect(0, i, worldSize, 180);
+        // Hvite striper
+        ctx.fillStyle = "#fff";
+        for(let j=0; j<worldSize; j+=100) {
+             ctx.fillRect(i + 85, j, 10, 50);
+             ctx.fillRect(j, i + 85, 50, 10);
+        }
+        ctx.fillStyle = roadPattern;
     }
 
-    // Hus
-    houses.forEach(h => {
-        ctx.fillStyle = "#8d6e63"; ctx.fillRect(h.x, h.y, h.w, h.h);
-        ctx.strokeStyle = "#4e342e"; ctx.lineWidth = 5; ctx.strokeRect(h.x, h.y, h.w, h.h);
-    });
-
-    // Items
+    // 3. Items på bakken
     worldItems.forEach(it => {
-        ctx.fillStyle = it.color; ctx.fillRect(it.x-10, it.y-10, 20, 20);
-        ctx.fillStyle = "white"; ctx.font = "10px Arial"; ctx.fillText(it.type, it.x-15, it.y-15);
+        ctx.fillStyle = it.type === 'Medkit' ? 'red' : 'gold';
+        ctx.fillRect(it.x-10, it.y-10, 20, 20);
+        ctx.fillStyle = 'white'; ctx.fillText(it.type, it.x-15, it.y-20);
     });
 
-    // Fiender (Figurer)
+    // 4. Fiender
     enemies.forEach(en => {
-        ctx.fillStyle = "#c0392b";
-        ctx.beginPath(); ctx.arc(en.x, en.y, 20, 0, Math.PI*2); ctx.fill(); // Kropp
-        ctx.fillStyle = "#000"; ctx.fillRect(en.x + Math.cos(en.angle)*10, en.y + Math.sin(en.angle)*10, 5, 5); // Retning
+        ctx.fillStyle = en.type === 'big' ? '#8e44ad' : '#c0392b';
+        ctx.beginPath(); ctx.arc(en.x, en.y, en.type === 'big' ? 30 : 20, 0, Math.PI*2); ctx.fill();
+        // Øyne
+        ctx.fillStyle = "yellow"; 
+        ctx.fillRect(en.x-5, en.y-5, 3, 3); ctx.fillRect(en.x+5, en.y-5, 3, 3);
     });
 
-    // Bil (Detaljert)
-    ctx.save();
-    ctx.translate(car.x, car.y);
-    ctx.rotate(car.angle);
-    ctx.fillStyle = "#2980b9"; // Karosseri
-    ctx.fillRect(-car.h/2, -car.w/2, car.h, car.w);
-    ctx.fillStyle = "#333"; // Vinduer
-    ctx.fillRect(-10, -car.w/2 + 5, 30, car.w - 10);
-    ctx.fillStyle = "yellow"; // Lykter
-    ctx.fillRect(car.h/2 - 5, -car.w/2 + 5, 8, 12);
-    ctx.fillRect(car.h/2 - 5, car.w/2 - 17, 8, 12);
-    ctx.restore();
-
-    // Prosjektiler
-    projectiles.forEach(p => {
-        ctx.fillStyle = "orange"; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
-    });
-
-    // Spiller
+    // 5. Spiller
     if (!player.inVehicle) {
         ctx.save();
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle);
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = "#3498db"; ctx.fillRect(10, -5, 15, 10); // En liten "arm" som peker i retning
+        
+        // Kropp
+        ctx.fillStyle = "#3498db"; ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.fill();
+        // Hender som holder våpen
+        const weapon = player.inventory[activeSlot];
+        if (weapon && weapons[weapon]) {
+            ctx.fillStyle = weapons[weapon].color;
+            ctx.fillRect(10, -5, 25, 10); // Våpenløp
+        }
         ctx.restore();
     }
+
+    // 6. Bil
+    ctx.save();
+    ctx.translate(car.x, car.y);
+    ctx.rotate(car.angle);
+    ctx.shadowBlur = 10; ctx.shadowColor = "black";
+    ctx.fillStyle = "#2c3e50"; ctx.fillRect(-car.w/2, -car.h/2, car.w, car.h); // Main body
+    ctx.fillStyle = "#e74c3c"; ctx.fillRect(-car.w/2, -car.h/2, car.w, 10); // Spoiler
+    ctx.fillStyle = "#87ceeb"; ctx.fillRect(-25, -20, 50, 20); // Frontrute
+    ctx.restore();
+    ctx.shadowBlur = 0;
+
+    // 7. Prosjektiler
+    projectiles.forEach(p => {
+        ctx.fillStyle = "#ffeb3b"; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+    });
+
+    // 8. Partikler (Blod/Eksplosjon)
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life / 30;
+        ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 5, 5);
+        ctx.globalAlpha = 1.0;
+    });
+
+    // 9. Hus (Tegnes til slutt så de er "over" alt, men blir gjennomsiktig når spiller er inni)
+    houses.forEach(h => {
+        // Sjekk om spiller er inni dette spesifikke huset
+        const isInside = (player.x > h.x && player.x < h.x + h.w && player.y > h.y && player.y < h.y + h.h);
+        
+        ctx.globalAlpha = isInside ? 0.3 : 1.0; // Gjennomsiktig hvis inni
+        
+        // Gulv (alltid synlig inni)
+        ctx.fillStyle = "#3e2723"; ctx.fillRect(h.x, h.y, h.w, h.h);
+        
+        // Tak (forsvinner/blir svakere)
+        if (!isInside || player.inVehicle) {
+            ctx.fillStyle = "#5d4037"; // Takfarge
+            ctx.fillRect(h.x, h.y, h.w, h.h);
+            
+            // Takdetaljer (møne)
+            ctx.strokeStyle = "#3e2723"; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(h.x, h.y); ctx.lineTo(h.x+h.w, h.y+h.h); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(h.x+h.w, h.y); ctx.lineTo(h.x, h.y+h.h); ctx.stroke();
+        }
+        
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 5; ctx.strokeRect(h.x, h.y, h.w, h.h);
+        ctx.globalAlpha = 1.0;
+    });
 
     ctx.restore();
     update();
