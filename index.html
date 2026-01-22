@@ -2,628 +2,269 @@
 <html lang="no">
 <head>
     <meta charset="UTF-8">
-    <title>Street Survivor: No Mouse Edition</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Billig Bror: Shop & Arena</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Consolas', sans-serif; }
-        canvas { display: block; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Arial Black', sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
         
-        /* UI Design */
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
-        }
-        
-        #stats-box {
-            position: absolute; top: 20px; left: 20px;
-            background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 4px;
-            color: #eee; border-left: 5px solid #e74c3c;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-        
-        h2 { margin: 0 0 10px 0; font-size: 16px; text-transform: uppercase; color: #e74c3c; }
-        .info { font-size: 12px; line-height: 1.6; color: #bbb; }
-        .key { color: #fff; font-weight: bold; background: #333; padding: 2px 6px; border-radius: 3px; }
-
-        #bottom-ui {
-            position: absolute; bottom: 20px; width: 100%;
-            display: flex; flex-direction: column; align-items: center; gap: 15px;
+        #hud {
+            position: absolute; bottom: 20px; left: 20px; color: white;
+            background: rgba(0,0,0,0.8); padding: 15px; border: 3px solid #3498db;
+            border-radius: 10px; pointer-events: none;
         }
 
-        #bars { width: 400px; display: flex; flex-direction: column; gap: 5px; }
-        .bar-bg { width: 100%; height: 12px; background: #222; border: 1px solid #555; }
-        #hp-fill { height: 100%; width: 100%; background: #e74c3c; transition: width 0.1s; }
-        #ammo-fill { height: 100%; width: 100%; background: #f39c12; transition: width 0.1s; }
-
-        #hotbar { display: flex; gap: 8px; }
-        .slot {
-            width: 50px; height: 50px; background: rgba(20, 20, 20, 0.9);
-            border: 2px solid #444; color: #fff;
-            display: flex; justify-content: center; align-items: center;
-            font-size: 20px; position: relative;
+        #transition {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: black; color: white; display: none;
+            align-items: center; justify-content: center; font-size: 40px; z-index: 1000;
         }
-        .slot.active { border-color: #e74c3c; background: #2c2c2c; box-shadow: 0 0 10px rgba(231, 76, 60, 0.5); }
-        .slot-key { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #777; }
 
-        #message {
-            position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 30px; font-weight: bold; color: white; text-shadow: 2px 2px 0 #000;
-            display: none; background: rgba(0,0,0,0.8); padding: 15px 30px; border-radius: 5px;
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.5); font-size: 24px; pointer-events: none;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui-layer">
-        <div id="stats-box">
-            <h2>Kontroller</h2>
-            <div class="info">
-                Bevegelse: <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span><br>
-                Skyt: <span class="key">PILTASTER</span> eller <span class="key">MELLOMROM</span><br>
-                Bil: <span class="key">E</span> (Gå ut/inn)<br>
-                Plukk opp: <span class="key">T</span><br>
-                Medkit: <span class="key">M</span><br>
-                Våpen: <span class="key">1</span>-<span class="key">5</span>
-            </div>
-        </div>
+    <div id="transition">ENTERING...</div>
+    <div id="crosshair">+</div>
 
-        <div id="message"></div>
-
-        <div id="bottom-ui">
-            <div id="bars">
-                <div class="bar-bg"><div id="hp-fill"></div></div>
-                <div class="bar-bg"><div id="ammo-fill"></div></div>
-            </div>
-            <div id="hotbar"></div>
-        </div>
+    <div id="hud">
+        <div style="color: #e74c3c;">HP: <span id="hp">100</span></div>
+        <div id="location-text" style="color: #2ecc71;">LOCATION: ARENA</div>
+        <div id="weapon-text" style="color: #aaa; font-size: 12px;">FINN VÅPEN (BLÅ BOKS)</div>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
+    <canvas id="game"></canvas>
 
 <script>
-// --- OPPSETT ---
-const canvas = document.getElementById("gameCanvas");
+const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+canvas.width = 640; canvas.height = 360;
 
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
+// MAPS: 0=Luft, 1=Mur, 2=Speil, 3=Dør, 4=Hylle
+const arenaMap = [
+    1,1,1,1,1,1,1,1,1,1,
+    1,0,0,0,0,0,0,0,0,1,
+    1,0,2,2,3,2,2,0,0,1, // Dør (3) på bygningen
+    1,0,0,0,0,0,0,0,0,1,
+    1,0,0,0,0,0,0,0,0,1,
+    1,0,0,1,1,1,0,0,0,1,
+    1,0,0,1,0,0,0,0,0,1,
+    1,0,0,3,0,0,0,0,0,1, // Enda en dør
+    1,0,0,1,0,0,0,0,0,1,
+    1,1,1,1,1,1,1,1,1,1
+];
 
-// --- KONFIGURASJON ---
-const WORLD_SIZE = 4000;
-const BLOCK_SIZE = 600; 
-const ROAD_WIDTH = 140;
+const shopMap = [
+    1,1,1,3,1,1,
+    1,0,0,0,0,1,
+    1,0,0,0,0,1,
+    1,4,4,0,0,1,
+    1,0,0,0,0,1,
+    1,1,1,1,1,1
+];
+
+let currentMap = arenaMap;
+let mapSize = 10;
+let locationName = "ARENA";
+
+let player = {
+    x: 5, y: 5, dirX: -1, dirY: 0, planeX: 0, planeY: 0.66,
+    hp: 100, hasWeapon: false, is3rdPerson: false,
+    pitch: 0, recoil: 0, flash: 0, inTransition: false
+};
+
+let sprites = [
+    {x: 7, y: 3, type: 'gun', active: true, map: 'arena'},
+    {x: 2, y: 2, type: 'enemy', active: true, hp: 3, map: 'arena'},
+    {x: 1, y: 3, type: 'item', active: true, map: 'shop'}
+];
 
 const keys = {};
+window.onkeydown = e => keys[e.code] = true;
+window.onkeyup = e => keys[e.code] = false;
 
-// Spilldata
-const player = { 
-    x: 1000, y: 1000, 
-    hp: 100, maxHp: 100, 
-    speed: 5, baseSpeed: 5,
-    angle: 0, // Retningen spilleren ser
-    inVehicle: false,
-    inventory: Array(5).fill(null)
-};
-
-// Bilen - Nå justert for å være lang og smal og kjøre riktig
-const car = { 
-    x: 1200, y: 1200, 
-    width: 44, height: 90, // Lang og smal
-    angle: -Math.PI / 2, // Starter pekende oppover
-    speed: 0, maxSpeed: 18, 
-    accel: 0.4, friction: 0.95, turnSpeed: 0.05 
-};
-
-// Våpen
-const weaponDB = {
-    'Pistol': { dmg: 25, rate: 20, speed: 18, color: '#f1c40f', ammo: Infinity },
-    'SMG':    { dmg: 10, rate: 5,  speed: 22, color: '#fff',    ammo: 120 },
-    'Hagle':  { dmg: 15, rate: 45, speed: 16, color: '#e74c3c', ammo: 30, count: 5, spread: 0.4 },
-    'Sniper': { dmg: 100, rate: 60, speed: 40, color: '#9b59b6', ammo: 10 }
-};
-
-let activeSlot = 0;
-let fireCooldown = 0;
-let cameraShake = 0;
-
-const projectiles = [];
-const particles = [];
-const enemies = [];
-const items = [];
-const buildings = [];
-const trees = [];
-
-// --- GENERER VERDEN (Realistisk Stil) ---
-function initWorld() {
-    // 1. Bygninger og veier
-    for (let x = 0; x < WORLD_SIZE; x += BLOCK_SIZE) {
-        for (let y = 0; y < WORLD_SIZE; y += BLOCK_SIZE) {
-            // Legg til bygning (ikke på veien)
-            if (Math.random() > 0.2) {
-                const w = BLOCK_SIZE - ROAD_WIDTH - 20;
-                const h = BLOCK_SIZE - ROAD_WIDTH - 20;
-                buildings.push({
-                    x: x + ROAD_WIDTH/2 + 10,
-                    y: y + ROAD_WIDTH/2 + 10,
-                    w: w, h: h,
-                    color: Math.random() > 0.5 ? '#3a3a3a' : '#553333' // Mørk grå eller mørk brun
-                });
-            } else {
-                // Parkområde - legg til trær
-                for(let t=0; t<5; t++) {
-                    trees.push({
-                        x: x + Math.random() * BLOCK_SIZE,
-                        y: y + Math.random() * BLOCK_SIZE,
-                        r: 20 + Math.random() * 20
-                    });
-                }
-            }
-        }
-    }
+function startTransition(dest) {
+    player.inTransition = true;
+    const el = document.getElementById('transition');
+    el.innerText = dest === 'shop' ? "ENTERING SHOP..." : "EXITING TO ARENA...";
+    el.style.display = 'flex';
     
-    // 2. Fiender
-    for(let i=0; i<40; i++) {
-        enemies.push({ x: Math.random()*WORLD_SIZE, y: Math.random()*WORLD_SIZE, hp: 100, speed: 2 + Math.random() });
-    }
-    
-    // 3. Start-items
-    player.inventory[0] = 'Pistol';
-    spawnItem(player.x + 100, player.y);
-    for(let i=0; i<20; i++) spawnItem(Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE);
-}
-
-function spawnItem(x, y) {
-    const types = ['SMG', 'Hagle', 'Sniper', 'Medkit', 'Ammo'];
-    items.push({ x, y, type: types[Math.floor(Math.random()*types.length)] });
-}
-
-initWorld();
-
-// --- INPUT ---
-window.addEventListener('keydown', e => {
-    keys[e.key] = true;
-    keys[e.code] = true; // For Arrow keys space etc
-    
-    if(e.key >= '1' && e.key <= '5') { activeSlot = parseInt(e.key)-1; updateUI(); }
-    if(e.key.toLowerCase() === 't') tryPickup();
-    if(e.key.toLowerCase() === 'e') toggleVehicle();
-    if(e.key.toLowerCase() === 'm') useMedkit();
-});
-window.addEventListener('keyup', e => {
-    keys[e.key] = false;
-    keys[e.code] = false;
-});
-
-// --- LOGIKK FUNKSJONER ---
-function toggleVehicle() {
-    const dist = Math.hypot(player.x - car.x, player.y - car.y);
-    if (player.inVehicle) {
-        player.inVehicle = false;
-        // Hopp ut til siden
-        player.x = car.x + Math.cos(car.angle + Math.PI/2) * 50;
-        player.y = car.y + Math.sin(car.angle + Math.PI/2) * 50;
-    } else if (dist < 80) {
-        player.inVehicle = true;
-    }
-}
-
-function tryPickup() {
-    if(player.inVehicle) return;
-    items.forEach((it, idx) => {
-        if(Math.hypot(player.x - it.x, player.y - it.y) < 50) {
-            if(it.type === 'Ammo') {
-                showMessage("Ammo Refill!");
-            } else if (it.type === 'Medkit') {
-                // Legg til inventory
-                addToInventory('Medkit');
-                items.splice(idx, 1);
-            } else {
-                addToInventory(it.type);
-                items.splice(idx, 1);
-            }
+    setTimeout(() => {
+        if (dest === 'shop') {
+            currentMap = shopMap; mapSize = 6;
+            player.x = 3; player.y = 1.5;
+            locationName = "KIWI SHOP";
+        } else {
+            currentMap = arenaMap; mapSize = 10;
+            player.x = 4; player.y = 3.5;
+            locationName = "ARENA";
         }
-    });
+        document.getElementById('location-text').innerText = "LOCATION: " + locationName;
+        el.style.display = 'none';
+        player.inTransition = false;
+    }, 1000);
 }
 
-function addToInventory(type) {
-    // Sjekk om vi har det først (for ammo)
-    for(let i=0; i<5; i++) {
-        if(player.inventory[i] === type) return; // Har det allerede (forenklet)
-    }
-    // Finn tom plass
-    for(let i=0; i<5; i++) {
-        if(!player.inventory[i]) {
-            player.inventory[i] = type;
-            updateUI();
-            return;
-        }
-    }
-}
-
-function useMedkit() {
-    const idx = player.inventory.indexOf('Medkit');
-    if(idx !== -1 && player.hp < 100) {
-        player.hp = Math.min(100, player.hp + 50);
-        player.inventory[idx] = null;
-        showMessage("+50 HP");
-        updateUI();
-    }
-}
-
-function showMessage(txt) {
-    const el = document.getElementById('message');
-    el.innerText = txt; el.style.display = 'block';
-    setTimeout(() => el.style.display = 'none', 1500);
-}
-
-// --- SPILL LOOPEN ---
 function update() {
-    if(player.hp <= 0) return;
-    if(cameraShake > 0) cameraShake *= 0.9;
-    if(fireCooldown > 0) fireCooldown--;
+    if (player.inTransition) return;
 
-    // 1. Spiller Bevegelse (WASD)
-    if (!player.inVehicle) {
-        let dx = 0, dy = 0;
-        if(keys['w'] || keys['W']) dy = -1;
-        if(keys['s'] || keys['S']) dy = 1;
-        if(keys['a'] || keys['A']) dx = -1;
-        if(keys['d'] || keys['D']) dx = 1;
+    const moveSpeed = 0.06;
+    const rotSpeed = 0.04;
 
-        if (dx !== 0 || dy !== 0) {
-            // Normaliser fart
-            const len = Math.hypot(dx, dy);
-            player.x += (dx / len) * player.speed;
-            player.y += (dy / len) * player.speed;
-            
-            // Hvis vi beveger oss, se den veien (med mindre vi skyter med piler)
-            if (!keys['ArrowUp'] && !keys['ArrowDown'] && !keys['ArrowLeft'] && !keys['ArrowRight']) {
-                player.angle = Math.atan2(dy, dx);
-            }
+    if (keys['KeyW']) move(moveSpeed);
+    if (keys['KeyS']) move(-moveSpeed);
+    if (keys['KeyD']) rotate(-rotSpeed);
+    if (keys['KeyA']) rotate(rotSpeed);
+    if (keys['ArrowUp']) player.pitch = Math.min(player.pitch + 8, 150);
+    if (keys['ArrowDown']) player.pitch = Math.max(player.pitch - 8, -150);
+    if (keys['KeyB']) { player.is3rdPerson = !player.is3rdPerson; keys['KeyB'] = false; }
+
+    // Interaksjon (T) - Sjekk for dør eller våpen
+    if (keys['KeyT']) {
+        // Sjekk dør
+        let checkX = Math.floor(player.x + player.dirX * 0.5);
+        let checkY = Math.floor(player.y + player.dirY * 0.5);
+        if (currentMap[checkX + checkY * mapSize] === 3) {
+            startTransition(locationName === "ARENA" ? 'shop' : 'arena');
+            keys['KeyT'] = false;
         }
-
-        // 2. Skyting (Piltaster eller Space)
-        let shootX = 0, shootY = 0;
-        let tryingToShoot = false;
-
-        // Prioriter piltaster for å bestemme skyteretning
-        if (keys['ArrowUp'])    { shootY = -1; tryingToShoot = true; }
-        if (keys['ArrowDown'])  { shootY = 1;  tryingToShoot = true; }
-        if (keys['ArrowLeft'])  { shootX = -1; tryingToShoot = true; }
-        if (keys['ArrowRight']) { shootX = 1;  tryingToShoot = true; }
-
-        if (tryingToShoot) {
-            player.angle = Math.atan2(shootY, shootX);
-        } else if (keys[' '] || keys['Space']) {
-            // Hvis SPACE, skyt i retningen vi ser
-            tryingToShoot = true;
-        }
-
-        const wepName = player.inventory[activeSlot];
-        const weapon = weaponDB[wepName];
-
-        if (tryingToShoot && weapon && fireCooldown <= 0) {
-            // Ammo sjekk
-            if (weapon.ammo > 0) {
-                weapon.ammo--;
-                if (weapon.ammo !== Infinity && weapon.ammo <= 0) player.inventory[activeSlot] = null; // Tomt
-                
-                fireCooldown = weapon.rate;
-                cameraShake = 5;
-                
-                // Hagle logikk (flere skudd) vs vanlig
-                const count = weapon.count || 1;
-                for(let i=0; i<count; i++) {
-                    const spread = (Math.random() - 0.5) * (weapon.spread || 0.1);
-                    projectiles.push({
-                        x: player.x, y: player.y,
-                        vx: Math.cos(player.angle + spread) * weapon.speed,
-                        vy: Math.sin(player.angle + spread) * weapon.speed,
-                        dmg: weapon.dmg,
-                        life: 60
-                    });
-                }
-                updateUI();
-            }
-        }
-    } 
-    // 3. Bil Kjøring
-    else {
-        if(keys['w'] || keys['W']) car.speed += car.accel;
-        if(keys['s'] || keys['S']) car.speed -= car.accel;
         
-        car.speed *= car.friction;
-
-        if (Math.abs(car.speed) > 0.5) {
-            const dir = car.speed > 0 ? 1 : -1;
-            if(keys['a'] || keys['A']) car.angle -= car.turnSpeed * dir;
-            if(keys['d'] || keys['D']) car.angle += car.turnSpeed * dir;
-        }
-
-        car.x += Math.cos(car.angle) * car.speed;
-        car.y += Math.sin(car.angle) * car.speed;
-        player.x = car.x; player.y = car.y;
-        player.angle = car.angle; // Spiller ser samme vei som bil
-    }
-
-    // 4. Fiender AI
-    enemies.forEach(en => {
-        const dist = Math.hypot(player.x - en.x, player.y - en.y);
-        
-        // Sjekk om spiller er trygg i hus
-        let safe = false;
-        if (!player.inVehicle) {
-            buildings.forEach(b => {
-                if (player.x > b.x && player.x < b.x+b.w && player.y > b.y && player.y < b.y+b.h) safe = true;
-            });
-        }
-
-        if (dist < 600 && !safe) {
-            const angle = Math.atan2(player.y - en.y, player.x - en.x);
-            en.x += Math.cos(angle) * en.speed;
-            en.y += Math.sin(angle) * en.speed;
-        }
-
-        if (dist < 30 && !player.inVehicle && !safe) {
-            player.hp -= 0.5;
-            updateUI();
-        }
-    });
-
-    // 5. Prosjektiler og Treff
-    for(let i=projectiles.length-1; i>=0; i--) {
-        const p = projectiles[i];
-        p.x += p.vx; p.y += p.vy; p.life--;
-        
-        let hit = false;
-        // Treff fiende
-        enemies.forEach((en, eIdx) => {
-            if(!hit && Math.hypot(p.x - en.x, p.y - en.y) < 25) {
-                en.hp -= p.dmg;
-                hit = true;
-                // Blod
-                for(let k=0; k<5; k++) particles.push({x:en.x, y:en.y, color:'darkred', vx:(Math.random()-0.5)*5, vy:(Math.random()-0.5)*5, life:20});
-                
-                if (en.hp <= 0) {
-                    enemies.splice(eIdx, 1);
-                    if(Math.random() > 0.7) spawnItem(en.x, en.y);
-                }
+        // Sjekk våpen
+        sprites.forEach(s => {
+            if (s.type === 'gun' && s.active && Math.hypot(s.x-player.x, s.y-player.y) < 1) {
+                s.active = false; player.hasWeapon = true;
+                document.getElementById('weapon-text').innerText = "VÅPEN: PISTOL AKTIV";
             }
         });
-        
-        // Treff husvegger
-        buildings.forEach(b => {
-            if(p.x > b.x && p.x < b.x+b.w && p.y > b.y && p.y < b.y+b.h) hit = true;
+    }
+
+    if (keys['KeyI'] && player.hasWeapon && player.recoil === 0) {
+        player.recoil = 15; player.flash = 5;
+        // Enkel skyte-logikk mot fiender
+        sprites.forEach(s => {
+            if (s.type === 'enemy' && s.active && s.map === 'arena') {
+                let dist = Math.hypot(s.x - player.x, s.y - player.y);
+                if (dist < 10) { s.hp--; if (s.hp <= 0) s.active = false; }
+            }
         });
-
-        if(hit || p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Partikler
-    for(let i=particles.length-1; i>=0; i--) {
-        const p = particles[i];
-        p.x += p.vx; p.y += p.vy; p.life--;
-        if(p.life<=0) particles.splice(i,1);
-    }
+    if (player.recoil > 0) player.recoil -= 2;
+    if (player.flash > 0) player.flash--;
+}
+
+function move(s) {
+    let nextX = player.x + player.dirX * s;
+    let nextY = player.y + player.dirY * s;
+    if (currentMap[Math.floor(nextX) + Math.floor(player.y) * mapSize] === 0) player.x = nextX;
+    if (currentMap[Math.floor(player.x) + Math.floor(nextY) * mapSize] === 0) player.y = nextY;
+}
+
+function rotate(s) {
+    let oldX = player.dirX;
+    player.dirX = player.dirX * Math.cos(s) - player.dirY * Math.sin(s);
+    player.dirY = oldX * Math.sin(s) + player.dirY * Math.cos(s);
+    let oldP = player.planeX;
+    player.planeX = player.planeX * Math.cos(s) - player.planeY * Math.sin(s);
+    player.planeY = oldP * Math.sin(s) + player.planeY * Math.cos(s);
 }
 
 function draw() {
-    // Kamera
-    let camX = -player.x + canvas.width/2 + (Math.random()-0.5)*cameraShake;
-    let camY = -player.y + canvas.height/2 + (Math.random()-0.5)*cameraShake;
+    // Bakgrunn
+    ctx.fillStyle = "#111"; ctx.fillRect(0,0,canvas.width, canvas.height);
+    ctx.fillStyle = "#222"; ctx.fillRect(0,canvas.height/2 + player.pitch, canvas.width, canvas.height);
 
-    ctx.fillStyle = "#111"; // Bakgrunn
-    ctx.fillRect(0,0, canvas.width, canvas.height);
-    
-    ctx.save();
-    ctx.translate(camX, camY);
+    const zBuffer = [];
 
-    // 1. Bakke / Gress (Mørk grønn, flat farge for "realisme")
-    ctx.fillStyle = "#1e281e"; 
-    // Tegn bare innenfor skjermen for ytelse
-    ctx.fillRect(player.x - 2000, player.y - 2000, 4000, 4000);
+    // Raycasting Vegger
+    for (let x = 0; x < canvas.width; x++) {
+        let cameraX = 2 * x / canvas.width - 1;
+        let rX = player.dirX + player.planeX * cameraX;
+        let rY = player.dirY + player.planeY * cameraX;
+        let mX = Math.floor(player.x), mY = Math.floor(player.y);
+        let dX = Math.abs(1/rX), dY = Math.abs(1/rY);
+        let sX, sY, sideX, sideY, hit=0, side;
 
-    // 2. Veier (Mørk asfalt)
-    ctx.fillStyle = "#222"; 
-    for(let x=0; x<WORLD_SIZE; x+=BLOCK_SIZE) {
-        ctx.fillRect(x, 0, ROAD_WIDTH, WORLD_SIZE);
-        ctx.fillRect(0, x, WORLD_SIZE, ROAD_WIDTH);
-        
-        // Veistriper
-        ctx.fillStyle = "#555";
-        for(let k=0; k<WORLD_SIZE; k+=100) {
-            ctx.fillRect(x + ROAD_WIDTH/2 - 2, k, 4, 40); // Vertikal
-            ctx.fillRect(k, x + ROAD_WIDTH/2 - 2, 40, 4); // Horisontal
+        if (rX < 0) { sX = -1; sideX = (player.x - mX) * dX; } else { sX = 1; sideX = (mX + 1.0 - player.x) * dX; }
+        if (rY < 0) { sY = -1; sideY = (player.y - mY) * dY; } else { sY = 1; sideY = (mY + 1.0 - player.y) * dY; }
+
+        while(hit === 0) {
+            if (sideX < sideY) { sideX += dX; mX += sX; side = 0; } else { sideY += dY; mY += sY; side = 1; }
+            if (currentMap[mX + mY * mapSize] > 0) hit = 1;
         }
-        ctx.fillStyle = "#222";
+
+        let pDist = (side === 0) ? (sideX - dX) : (sideY - dY);
+        zBuffer[x] = pDist;
+        let h = Math.floor(canvas.height / pDist);
+        let start = -h/2 + canvas.height/2 + player.pitch;
+
+        // Veggfarger
+        let type = currentMap[mX + mY * mapSize];
+        if (type === 1) ctx.fillStyle = side === 1 ? "#444" : "#666";
+        else if (type === 2) ctx.fillStyle = "#aaddff"; // Glass
+        else if (type === 3) ctx.fillStyle = "#5d3a1a"; // Dør
+        else if (type === 4) ctx.fillStyle = "#225522"; // Hylle
+        
+        // Shading basert på distanse
+        let brightness = Math.max(0.2, 1 - pDist/8);
+        ctx.globalAlpha = brightness;
+        ctx.fillRect(x, start, 1, h);
+        ctx.globalAlpha = 1;
     }
 
-    // 3. Trær (Enkle sirkler med skygge)
-    trees.forEach(t => {
-        ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.beginPath(); ctx.arc(t.x+5, t.y+5, t.r, 0, Math.PI*2); ctx.fill(); // Skygge
-        ctx.fillStyle = "#143a14"; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI*2); ctx.fill(); // Tre
-        ctx.fillStyle = "#1b4d1b"; ctx.beginPath(); ctx.arc(t.x, t.y, t.r*0.7, 0, Math.PI*2); ctx.fill(); // Tre lys
-    });
-
-    // 4. Items
-    items.forEach(it => {
-        ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.beginPath(); ctx.arc(it.x, it.y, 15, 0, Math.PI*2); ctx.fill(); // Glød
-        
-        let col = "white";
-        if(it.type === 'Medkit') col = "#e74c3c";
-        if(it.type === 'Ammo') col = "#f39c12";
-        if(it.type === 'Sniper') col = "#9b59b6";
-        
-        ctx.fillStyle = col;
-        ctx.fillRect(it.x-8, it.y-8, 16, 16);
-        ctx.font = "10px Consolas"; ctx.fillStyle = "#fff"; ctx.fillText(it.type, it.x-10, it.y-12);
-    });
-
-    // 5. Fiender
-    enemies.forEach(en => {
-        ctx.save();
-        ctx.translate(en.x, en.y);
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.beginPath(); ctx.arc(2, 2, 20, 0, Math.PI*2); ctx.fill(); // Skygge
-        
-        ctx.fillStyle = "#c0392b";
-        ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.fill();
-        
-        // Helsebar
-        ctx.fillStyle = "black"; ctx.fillRect(-15, -30, 30, 4);
-        ctx.fillStyle = "#2ecc71"; ctx.fillRect(-15, -30, 30*(en.hp/100), 4);
-        ctx.restore();
-    });
-
-    // 6. Bil (Tegnes realistisk: Lang og smal)
-    ctx.save();
-    ctx.translate(car.x, car.y);
-    ctx.rotate(car.angle);
-    
-    // Bil kropp (Lang rektangel)
-    // Siden 0 grader i canvas er "Høyre" (X-aksen), men bilen er tegnet "width x height",
-    // så hvis bilen kjører forover (langs X-aksen), må vi tegne den liggende.
-    const l = car.height; // Lengde (90)
-    const w = car.width;  // Bredde (44)
-    
-    // Skygge
-    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(-l/2 + 5, -w/2 + 5, l, w);
-
-    // Karosseri
-    ctx.fillStyle = "#2980b9"; // Blå
-    ctx.beginPath();
-    ctx.roundRect(-l/2, -w/2, l, w, 5); 
-    ctx.fill();
-
-    // Tak / Vinduer
-    ctx.fillStyle = "#111"; // Mørkt glass
-    ctx.fillRect(-l/4, -w/2 + 2, l/2, w - 4); 
-
-    // Frontlys (Fronten er mot høyre i dette koordinatsystemet hvis angle=0)
-    ctx.fillStyle = "#f1c40f"; // Gul
-    ctx.fillRect(l/2 - 2, -w/2 + 4, 2, 10);
-    ctx.fillRect(l/2 - 2, w/2 - 14, 2, 10);
-
-    // Baklys
-    ctx.fillStyle = "#c0392b"; // Rød
-    ctx.fillRect(-l/2, -w/2 + 4, 2, 10);
-    ctx.fillRect(-l/2, w/2 - 14, 2, 10);
-
-    ctx.restore();
-
-    // 7. Spiller
-    if (!player.inVehicle) {
-        ctx.save();
-        ctx.translate(player.x, player.y);
-        ctx.rotate(player.angle);
-        
-        // Skygge
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.beginPath(); ctx.arc(2, 2, 18, 0, Math.PI*2); ctx.fill();
-        
-        // Kropp
-        ctx.fillStyle = "#ecf0f1"; 
-        ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI*2); ctx.fill(); // Hode/Skuldre
-        
-        // Armer/Våpen
-        const wep = player.inventory[activeSlot];
-        if(wep && weaponDB[wep]) {
-            ctx.fillStyle = weaponDB[wep].color;
-            ctx.fillRect(10, 5, 25, 6); // Våpen stikker ut
-        } else {
-             // Ingen våpen - hender
-            ctx.fillStyle = "#bdc3c7";
-            ctx.beginPath(); ctx.arc(15, 10, 5, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.arc(15, -10, 5, 0, Math.PI*2); ctx.fill();
+    // Sprites
+    sprites.forEach(s => {
+        if (!s.active || s.map !== (locationName === "ARENA" ? 'arena' : 'shop')) return;
+        let sx = s.x - player.x, sy = s.y - player.y;
+        let inv = 1.0 / (player.planeX * player.dirY - player.dirX * player.planeY);
+        let tx = inv * (player.dirY * sx - player.dirX * sy);
+        let ty = inv * (-player.planeY * sx + player.planeX * sy);
+        if (ty > 0.1) {
+            let sX = Math.floor((canvas.width/2) * (1 + tx/ty));
+            let sH = Math.abs(Math.floor(canvas.height / ty));
+            if (zBuffer[sX] > ty) {
+                ctx.fillStyle = s.type === 'gun' ? "#3498db" : (s.type === 'enemy' ? "#e74c3c" : "#f1c40f");
+                ctx.fillRect(sX - sH/4, canvas.height/2 - sH/4 + player.pitch, sH/2, sH/2);
+            }
         }
-        ctx.restore();
-    }
-
-    // 8. Prosjektiler
-    projectiles.forEach(p => {
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
     });
 
-    // 9. Partikler
-    particles.forEach(p => {
-        ctx.fillStyle = p.color; ctx.globalAlpha = p.life/20;
-        ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
-    });
-
-    // 10. Bygninger (Enkle blokker med "tak" effekt)
-    buildings.forEach(b => {
-        // Sjekk om spiller er inni
-        const inside = (player.x > b.x && player.x < b.x+b.w && player.y > b.y && player.y < b.y+b.h);
-        ctx.globalAlpha = inside ? 0.3 : 1.0;
-
-        // Vegger (Base)
-        ctx.fillStyle = "#111"; // Skyggekant
-        ctx.fillRect(b.x, b.y + 10, b.w, b.h); 
-
-        // Tak (Hoveddel)
-        ctx.fillStyle = b.color;
-        ctx.fillRect(b.x, b.y, b.w, b.h);
-        
-        // Kant på taket (3D illusjon)
-        ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
-        ctx.strokeRect(b.x, b.y, b.w, b.h);
-        ctx.strokeRect(b.x+10, b.y+10, b.w-20, b.h-20);
-        
-        ctx.globalAlpha = 1.0;
-    });
-
-    // Dødskjerm
-    if(player.hp <= 0) {
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.fillRect(-canvas.width, -canvas.height, canvas.width*3, canvas.height*3);
-        ctx.fillStyle = "#c0392b";
-        ctx.font = "bold 60px Arial";
-        ctx.fillText("WASTED", player.x - 120, player.y);
-        ctx.font = "20px Arial"; ctx.fillStyle = "white";
-        ctx.fillText("Last inn siden på nytt for å spille igjen", player.x - 180, player.y + 50);
-    }
-
-    ctx.restore();
-    requestAnimationFrame(update);
-    requestAnimationFrame(draw);
+    if (player.hasWeapon && !player.is3rdPerson) drawGun();
+    if (player.is3rdPerson) drawPlayer();
 }
 
-function updateUI() {
-    // Inventory
-    const container = document.getElementById('hotbar');
-    container.innerHTML = '';
-    
-    for(let i=0; i<5; i++) {
-        const item = player.inventory[i];
-        const div = document.createElement('div');
-        div.className = `slot ${i===activeSlot ? 'active' : ''}`;
-        
-        let display = "";
-        if(item === 'Pistol') display = "🔫";
-        else if(item === 'SMG') display = "🖊️"; // Symbolsk
-        else if(item === 'Hagle') display = "💥";
-        else if(item === 'Sniper') display = "🔭";
-        else if(item === 'Medkit') display = "➕";
-        
-        div.innerHTML = `<span class="slot-key">${i+1}</span>${display}`;
-        container.appendChild(div);
+
+
+function drawGun() {
+    ctx.save();
+    ctx.translate(canvas.width/2, canvas.height - 100 + player.pitch - player.recoil);
+    ctx.fillStyle = "#222";
+    ctx.fillRect(-20, 0, 40, 100); // Pistol kropp
+    ctx.fillStyle = "#333";
+    ctx.fillRect(-5, -40, 10, 50); // Løp
+    if (player.flash > 0) {
+        ctx.fillStyle = "orange";
+        ctx.beginPath(); ctx.arc(0, -45, 15, 0, Math.PI*2); ctx.fill();
     }
-    
-    document.getElementById('hp-fill').style.width = player.hp + "%";
-    
-    const wep = player.inventory[activeSlot];
-    const data = weaponDB[wep];
-    if(data && data.ammo !== Infinity) {
-        document.getElementById('ammo-fill').style.width = Math.min(100, data.ammo) + "%";
-    } else {
-        document.getElementById('ammo-fill').style.width = "100%";
-    }
+    ctx.restore();
 }
 
-// Start
-updateUI();
-update();
-draw();
+function drawPlayer() {
+    let x = canvas.width/2, y = canvas.height/2 + 80 + player.pitch;
+    ctx.fillStyle = "#ffdbac"; ctx.fillRect(x-10, y-100, 20, 20); // Hode
+    ctx.fillStyle = "#2980b9"; ctx.fillRect(x-15, y-80, 30, 40); // Kropp
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+loop();
 </script>
 </body>
 </html>
