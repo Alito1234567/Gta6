@@ -2,261 +2,215 @@
 <html lang="no">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Billig Bror: Shop & Arena</title>
+    <title>2D Arena Survivor: Shop & Action</title>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: 'Arial Black', sans-serif; }
-        canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
+        body { margin: 0; background: #111; overflow: hidden; font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #game-container { position: relative; border: 4px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        canvas { background: #222; display: block; image-rendering: pixelated; }
         
         #hud {
-            position: absolute; bottom: 20px; left: 20px; color: white;
-            background: rgba(0,0,0,0.8); padding: 15px; border: 3px solid #3498db;
-            border-radius: 10px; pointer-events: none;
+            position: absolute; top: 10px; left: 10px; color: white;
+            background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; pointer-events: none;
         }
 
         #transition {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: black; color: white; display: none;
-            align-items: center; justify-content: center; font-size: 40px; z-index: 1000;
+            background: black; opacity: 0; display: none;
+            align-items: center; justify-content: center; color: white; font-size: 30px;
+            transition: opacity 0.5s; z-index: 10;
         }
 
-        #crosshair {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: rgba(255,255,255,0.5); font-size: 24px; pointer-events: none;
+        #death-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(150, 0, 0, 0.8); color: white; display: none;
+            flex-direction: column; align-items: center; justify-content: center; z-index: 20;
         }
     </style>
 </head>
 <body>
 
-    <div id="transition">ENTERING...</div>
-    <div id="crosshair">+</div>
-
-    <div id="hud">
-        <div style="color: #e74c3c;">HP: <span id="hp">100</span></div>
-        <div id="location-text" style="color: #2ecc71;">LOCATION: ARENA</div>
-        <div id="weapon-text" style="color: #aaa; font-size: 12px;">FINN VÅPEN (BLÅ BOKS)</div>
+    <div id="game-container">
+        <div id="hud">
+            HP: <span id="hp">100</span> | <span id="loc">ARENA</span><br>
+            VÅPEN: <span id="wpn">INGEN</span>
+        </div>
+        <div id="transition">GÅR INN...</div>
+        <div id="death-screen">
+            <h1>DU DØDE</h1>
+            <button onclick="location.reload()">PRØV IGJEN</button>
+        </div>
+        <canvas id="game"></canvas>
     </div>
-
-    <canvas id="game"></canvas>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-canvas.width = 640; canvas.height = 360;
+canvas.width = 800; canvas.height = 600;
 
-// MAPS: 0=Luft, 1=Mur, 2=Speil, 3=Dør, 4=Hylle
-const arenaMap = [
-    1,1,1,1,1,1,1,1,1,1,
-    1,0,0,0,0,0,0,0,0,1,
-    1,0,2,2,3,2,2,0,0,1, // Dør (3) på bygningen
-    1,0,0,0,0,0,0,0,0,1,
-    1,0,0,0,0,0,0,0,0,1,
-    1,0,0,1,1,1,0,0,0,1,
-    1,0,0,1,0,0,0,0,0,1,
-    1,0,0,3,0,0,0,0,0,1, // Enda en dør
-    1,0,0,1,0,0,0,0,0,1,
-    1,1,1,1,1,1,1,1,1,1
-];
+// Spill-tilstand
+let state = "ARENA"; // Eller "SHOP"
+let player = { x: 400, y: 300, size: 20, color: "#00ff00", hp: 100, hasGun: false, angle: 0, bullets: [] };
+const keys = {};
 
-const shopMap = [
-    1,1,1,3,1,1,
-    1,0,0,0,0,1,
-    1,0,0,0,0,1,
-    1,4,4,0,0,1,
-    1,0,0,0,0,1,
-    1,1,1,1,1,1
-];
-
-let currentMap = arenaMap;
-let mapSize = 10;
-let locationName = "ARENA";
-
-let player = {
-    x: 5, y: 5, dirX: -1, dirY: 0, planeX: 0, planeY: 0.66,
-    hp: 100, hasWeapon: false, is3rdPerson: false,
-    pitch: 0, recoil: 0, flash: 0, inTransition: false
+// Kart-objekter (Bygninger, Dører, Våpen)
+let arenaObjects = {
+    walls: [{x: 100, y: 100, w: 200, h: 150, color: "#444"}],
+    doors: [{x: 180, y: 250, w: 40, h: 10, target: "SHOP"}],
+    guns: [{x: 600, y: 150, active: true}],
+    enemies: [{x: 100, y: 500, hp: 3, active: true}, {x: 700, y: 500, hp: 3, active: true}]
 };
 
-let sprites = [
-    {x: 7, y: 3, type: 'gun', active: true, map: 'arena'},
-    {x: 2, y: 2, type: 'enemy', active: true, hp: 3, map: 'arena'},
-    {x: 1, y: 3, type: 'item', active: true, map: 'shop'}
-];
+let shopObjects = {
+    walls: [{x: 0, y: 0, w: 800, h: 20}, {x: 0, y: 580, w: 800, h: 20}],
+    shelves: [{x: 100, y: 100, w: 100, h: 40}, {x: 300, y: 100, w: 100, h: 40}],
+    doors: [{x: 380, y: 550, w: 40, h: 30, target: "ARENA"}]
+};
 
-const keys = {};
 window.onkeydown = e => keys[e.code] = true;
 window.onkeyup = e => keys[e.code] = false;
 
-function startTransition(dest) {
-    player.inTransition = true;
-    const el = document.getElementById('transition');
-    el.innerText = dest === 'shop' ? "ENTERING SHOP..." : "EXITING TO ARENA...";
-    el.style.display = 'flex';
+function doTransition(target) {
+    const trans = document.getElementById("transition");
+    trans.style.display = "flex";
+    setTimeout(() => trans.style.opacity = 1, 10);
     
     setTimeout(() => {
-        if (dest === 'shop') {
-            currentMap = shopMap; mapSize = 6;
-            player.x = 3; player.y = 1.5;
-            locationName = "KIWI SHOP";
-        } else {
-            currentMap = arenaMap; mapSize = 10;
-            player.x = 4; player.y = 3.5;
-            locationName = "ARENA";
-        }
-        document.getElementById('location-text').innerText = "LOCATION: " + locationName;
-        el.style.display = 'none';
-        player.inTransition = false;
-    }, 1000);
+        state = target;
+        document.getElementById("loc").innerText = state;
+        if(state === "SHOP") { player.x = 400; player.y = 500; }
+        else { player.x = 200; player.y = 280; }
+        
+        trans.style.opacity = 0;
+        setTimeout(() => trans.style.display = "none", 500);
+    }, 800);
 }
 
 function update() {
-    if (player.inTransition) return;
+    if (player.hp <= 0) {
+        document.getElementById("death-screen").style.display = "flex";
+        return;
+    }
 
-    const moveSpeed = 0.06;
-    const rotSpeed = 0.04;
+    // Bevegelse
+    if (keys['KeyW']) player.y -= 4;
+    if (keys['KeyS']) player.y += 4;
+    if (keys['KeyA']) player.x -= 4;
+    if (keys['KeyD']) player.x += 4;
 
-    if (keys['KeyW']) move(moveSpeed);
-    if (keys['KeyS']) move(-moveSpeed);
-    if (keys['KeyD']) rotate(-rotSpeed);
-    if (keys['KeyA']) rotate(rotSpeed);
-    if (keys['ArrowUp']) player.pitch = Math.min(player.pitch + 8, 150);
-    if (keys['ArrowDown']) player.pitch = Math.max(player.pitch - 8, -150);
-    if (keys['KeyB']) { player.is3rdPerson = !player.is3rdPerson; keys['KeyB'] = false; }
+    // Sikte (Arrow keys)
+    if (keys['ArrowLeft']) player.angle -= 0.1;
+    if (keys['ArrowRight']) player.angle += 0.1;
 
-    // Interaksjon (T) - Sjekk for dør eller våpen
-    if (keys['KeyT']) {
+    // Plukke opp (T)
+    if (keys['KeyT'] && state === "ARENA") {
         // Sjekk dør
-        let checkX = Math.floor(player.x + player.dirX * 0.5);
-        let checkY = Math.floor(player.y + player.dirY * 0.5);
-        if (currentMap[checkX + checkY * mapSize] === 3) {
-            startTransition(locationName === "ARENA" ? 'shop' : 'arena');
-            keys['KeyT'] = false;
-        }
-        
+        arenaObjects.doors.forEach(d => {
+            if (player.x > d.x && player.x < d.x + d.w && player.y > d.y && player.y < d.y + d.h) {
+                doTransition("SHOP");
+            }
+        });
         // Sjekk våpen
-        sprites.forEach(s => {
-            if (s.type === 'gun' && s.active && Math.hypot(s.x-player.x, s.y-player.y) < 1) {
-                s.active = false; player.hasWeapon = true;
-                document.getElementById('weapon-text').innerText = "VÅPEN: PISTOL AKTIV";
+        arenaObjects.guns.forEach(g => {
+            if (g.active && Math.hypot(player.x - g.x, player.y - g.y) < 30) {
+                g.active = false;
+                player.hasGun = true;
+                document.getElementById("wpn").innerText = "PISTOL";
+            }
+        });
+    }
+    
+    if (keys['KeyT'] && state === "SHOP") {
+        shopObjects.doors.forEach(d => {
+            if (player.x > d.x && player.x < d.x + d.w && player.y > d.y && player.y < d.y + d.h) {
+                doTransition("ARENA");
             }
         });
     }
 
-    if (keys['KeyI'] && player.hasWeapon && player.recoil === 0) {
-        player.recoil = 15; player.flash = 5;
-        // Enkel skyte-logikk mot fiender
-        sprites.forEach(s => {
-            if (s.type === 'enemy' && s.active && s.map === 'arena') {
-                let dist = Math.hypot(s.x - player.x, s.y - player.y);
-                if (dist < 10) { s.hp--; if (s.hp <= 0) s.active = false; }
+    // Skyte (I)
+    if (keys['KeyI'] && player.hasGun && keys['KeyI_ready'] !== false) {
+        player.bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle) * 10, vy: Math.sin(player.angle) * 10 });
+        keys['KeyI_ready'] = false;
+        setTimeout(() => keys['KeyI_ready'] = true, 300);
+    }
+
+    // Bullet logikk
+    player.bullets.forEach((b, index) => {
+        b.x += b.vx; b.y += b.vy;
+        if (state === "ARENA") {
+            arenaObjects.enemies.forEach(e => {
+                if (e.active && Math.hypot(b.x - e.x, b.y - e.y) < 20) {
+                    e.hp--; b.hit = true;
+                    if (e.hp <= 0) e.active = false;
+                }
+            });
+        }
+    });
+    player.bullets = player.bullets.filter(b => !b.hit && b.x > 0 && b.x < 800 && b.y > 0 && b.y < 600);
+
+    // Fiende AI
+    if (state === "ARENA") {
+        arenaObjects.enemies.forEach(e => {
+            if (e.active) {
+                let dist = Math.hypot(player.x - e.x, player.y - e.y);
+                if (dist < 200) {
+                    e.x += (player.x - e.x) * 0.02;
+                    e.y += (player.y - e.y) * 0.02;
+                }
+                if (dist < 20) player.hp -= 0.5;
             }
         });
     }
 
-    if (player.recoil > 0) player.recoil -= 2;
-    if (player.flash > 0) player.flash--;
-}
-
-function move(s) {
-    let nextX = player.x + player.dirX * s;
-    let nextY = player.y + player.dirY * s;
-    if (currentMap[Math.floor(nextX) + Math.floor(player.y) * mapSize] === 0) player.x = nextX;
-    if (currentMap[Math.floor(player.x) + Math.floor(nextY) * mapSize] === 0) player.y = nextY;
-}
-
-function rotate(s) {
-    let oldX = player.dirX;
-    player.dirX = player.dirX * Math.cos(s) - player.dirY * Math.sin(s);
-    player.dirY = oldX * Math.sin(s) + player.dirY * Math.cos(s);
-    let oldP = player.planeX;
-    player.planeX = player.planeX * Math.cos(s) - player.planeY * Math.sin(s);
-    player.planeY = oldP * Math.sin(s) + player.planeY * Math.cos(s);
+    document.getElementById("hp").innerText = Math.ceil(player.hp);
 }
 
 function draw() {
-    // Bakgrunn
-    ctx.fillStyle = "#111"; ctx.fillRect(0,0,canvas.width, canvas.height);
-    ctx.fillStyle = "#222"; ctx.fillRect(0,canvas.height/2 + player.pitch, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const zBuffer = [];
-
-    // Raycasting Vegger
-    for (let x = 0; x < canvas.width; x++) {
-        let cameraX = 2 * x / canvas.width - 1;
-        let rX = player.dirX + player.planeX * cameraX;
-        let rY = player.dirY + player.planeY * cameraX;
-        let mX = Math.floor(player.x), mY = Math.floor(player.y);
-        let dX = Math.abs(1/rX), dY = Math.abs(1/rY);
-        let sX, sY, sideX, sideY, hit=0, side;
-
-        if (rX < 0) { sX = -1; sideX = (player.x - mX) * dX; } else { sX = 1; sideX = (mX + 1.0 - player.x) * dX; }
-        if (rY < 0) { sY = -1; sideY = (player.y - mY) * dY; } else { sY = 1; sideY = (mY + 1.0 - player.y) * dY; }
-
-        while(hit === 0) {
-            if (sideX < sideY) { sideX += dX; mX += sX; side = 0; } else { sideY += dY; mY += sY; side = 1; }
-            if (currentMap[mX + mY * mapSize] > 0) hit = 1;
-        }
-
-        let pDist = (side === 0) ? (sideX - dX) : (sideY - dY);
-        zBuffer[x] = pDist;
-        let h = Math.floor(canvas.height / pDist);
-        let start = -h/2 + canvas.height/2 + player.pitch;
-
-        // Veggfarger
-        let type = currentMap[mX + mY * mapSize];
-        if (type === 1) ctx.fillStyle = side === 1 ? "#444" : "#666";
-        else if (type === 2) ctx.fillStyle = "#aaddff"; // Glass
-        else if (type === 3) ctx.fillStyle = "#5d3a1a"; // Dør
-        else if (type === 4) ctx.fillStyle = "#225522"; // Hylle
-        
-        // Shading basert på distanse
-        let brightness = Math.max(0.2, 1 - pDist/8);
-        ctx.globalAlpha = brightness;
-        ctx.fillRect(x, start, 1, h);
-        ctx.globalAlpha = 1;
+    if (state === "ARENA") {
+        // Tegn bakke
+        ctx.fillStyle = "#2c3e50"; ctx.fillRect(0,0,800,600);
+        // Vegger/Hus
+        arenaObjects.walls.forEach(w => {
+            ctx.fillStyle = w.color; ctx.fillRect(w.x, w.y, w.w, w.h);
+            ctx.strokeStyle = "white"; ctx.strokeRect(w.x, w.y, w.w, w.h);
+        });
+        // Dører
+        arenaObjects.doors.forEach(d => { ctx.fillStyle = "#5d3a1a"; ctx.fillRect(d.x, d.y, d.w, d.h); });
+        // Våpen
+        arenaObjects.guns.forEach(g => { if(g.active) { ctx.fillStyle = "#3498db"; ctx.fillRect(g.x-10, g.y-10, 20, 20); } });
+        // Fiender
+        arenaObjects.enemies.forEach(e => {
+            if(e.active) {
+                ctx.fillStyle = "#e74c3c"; ctx.beginPath(); ctx.arc(e.x, e.y, 15, 0, Math.PI*2); ctx.fill();
+            }
+        });
+    } else {
+        // SHOP
+        ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0,0,800,600);
+        shopObjects.walls.forEach(w => { ctx.fillStyle = "#333"; ctx.fillRect(w.x, w.y, w.w, w.h); });
+        shopObjects.shelves.forEach(s => { ctx.fillStyle = "#27ae60"; ctx.fillRect(s.x, s.y, s.w, s.h); });
+        shopObjects.doors.forEach(d => { ctx.fillStyle = "#5d3a1a"; ctx.fillRect(d.x, d.y, d.w, d.h); });
     }
 
-    // Sprites
-    sprites.forEach(s => {
-        if (!s.active || s.map !== (locationName === "ARENA" ? 'arena' : 'shop')) return;
-        let sx = s.x - player.x, sy = s.y - player.y;
-        let inv = 1.0 / (player.planeX * player.dirY - player.dirX * player.planeY);
-        let tx = inv * (player.dirY * sx - player.dirX * sy);
-        let ty = inv * (-player.planeY * sx + player.planeX * sy);
-        if (ty > 0.1) {
-            let sX = Math.floor((canvas.width/2) * (1 + tx/ty));
-            let sH = Math.abs(Math.floor(canvas.height / ty));
-            if (zBuffer[sX] > ty) {
-                ctx.fillStyle = s.type === 'gun' ? "#3498db" : (s.type === 'enemy' ? "#e74c3c" : "#f1c40f");
-                ctx.fillRect(sX - sH/4, canvas.height/2 - sH/4 + player.pitch, sH/2, sH/2);
-            }
-        }
-    });
-
-    if (player.hasWeapon && !player.is3rdPerson) drawGun();
-    if (player.is3rdPerson) drawPlayer();
-}
-
-
-
-function drawGun() {
+    // Tegn spiller (Litt mer detaljert 2D-figur)
     ctx.save();
-    ctx.translate(canvas.width/2, canvas.height - 100 + player.pitch - player.recoil);
-    ctx.fillStyle = "#222";
-    ctx.fillRect(-20, 0, 40, 100); // Pistol kropp
-    ctx.fillStyle = "#333";
-    ctx.fillRect(-5, -40, 10, 50); // Løp
-    if (player.flash > 0) {
-        ctx.fillStyle = "orange";
-        ctx.beginPath(); ctx.arc(0, -45, 15, 0, Math.PI*2); ctx.fill();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    // Kropp
+    ctx.fillStyle = player.color; ctx.fillRect(-15, -15, 30, 30);
+    // Ansikt/Retning
+    ctx.fillStyle = "black"; ctx.fillRect(5, -10, 5, 5); ctx.fillRect(5, 5, 5, 5);
+    // Våpen hvis han har
+    if (player.hasGun) {
+        ctx.fillStyle = "gray"; ctx.fillRect(15, -5, 20, 10);
     }
     ctx.restore();
-}
 
-function drawPlayer() {
-    let x = canvas.width/2, y = canvas.height/2 + 80 + player.pitch;
-    ctx.fillStyle = "#ffdbac"; ctx.fillRect(x-10, y-100, 20, 20); // Hode
-    ctx.fillStyle = "#2980b9"; ctx.fillRect(x-15, y-80, 30, 40); // Kropp
+    // Tegn kuler
+    ctx.fillStyle = "yellow";
+    player.bullets.forEach(b => ctx.fillRect(b.x, b.y, 5, 5));
 }
 
 function loop() {
